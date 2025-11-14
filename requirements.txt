@@ -1,0 +1,14 @@
+# Minimal Requirements for New Relic + LangGraph MRE
+# No internal Verizon dependencies - all packages from public PyPI
+
+# LangGraph and LangChain core
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+
+# New Relic APM
+newrelic>=9.0.0
+
+# Basic dependencies
+requests>=2.31.0
+
