@@ -6,8 +6,7 @@
   "env": ".env",
   "python_version": "3.11",
   "dockerfile_lines": [
-    "ENV NEW_RELIC_CONFIG_FILE=/deps/newrelic.ini",
-    "ENV NEW_RELIC_ENVIRONMENT=production"
+    "ENV NEW_RELIC_CONFIG_FILE=/deps/newrelic.ini"
   ],
   "http": {
     "disable_studio_auth": true,
