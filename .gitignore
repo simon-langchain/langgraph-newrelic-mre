@@ -52,3 +52,4 @@ secrets/
 # Original files (keep these local)
 services/
 pip_freeze_output.txt
+.langgraph_api
