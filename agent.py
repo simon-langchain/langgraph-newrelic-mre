@@ -1,10 +1,10 @@
 """
 Minimal Reproducible Example: LangGraph + New Relic Integration
 
-This demonstrates a simple LangGraph agent with optional New Relic monitoring.
+This demonstrates a simple LangGraph agent with explicit New Relic monitoring.
 
-Note: New Relic is initialized via environment variables set in deployment settings.
-No direct initialization needed - the agent is activated automatically.
+Note: New Relic requires a workaround for LangGraph Platform due to Uvicorn
+lifecycle conflicts. The Uvicorn hook is suppressed to prevent initialization errors.
 """
 
 import os
@@ -12,16 +12,32 @@ import sys
 import asyncio
 
 # ============================================================================
-# NEW RELIC - Environment Variable Configuration
+# NEW RELIC - EXPLICIT INITIALIZATION WITH UVICORN WORKAROUND
 # ============================================================================
-# New Relic initializes automatically from environment variables:
-#   NEW_RELIC_LICENSE_KEY - Required for activation
-#   NEW_RELIC_CONFIG_FILE - Path to config file
-#   NEW_RELIC_ENVIRONMENT - Deployment environment
-#
-# No manual initialization is performed to avoid conflicts with LangGraph Platform's
-# Uvicorn server management. The agent auto-initializes when these env vars are set.
-# ============================================================================
+# Required workaround: Suppress New Relic's Uvicorn hook to prevent conflicts
+# with LangGraph Platform's ASGI server initialization.
+class DummyUvicornModule:
+    """Dummy module to suppress New Relic's Uvicorn instrumentation hook."""
+    def __getattr__(self, name):
+        def dummy_func(*args, **kwargs):
+            return None
+        return dummy_func
+
+sys.modules['newrelic.hooks.adapter_uvicorn'] = DummyUvicornModule()
+
+# Now initialize New Relic explicitly
+config_file = os.environ.get("NEW_RELIC_CONFIG_FILE", "/deps/newrelic.ini")
+license_key = os.environ.get("NEW_RELIC_LICENSE_KEY")
+
+if license_key:
+    try:
+        import newrelic.agent
+        newrelic.agent.initialize(config_file)
+        print(f"✅ New Relic agent initialized (config: {config_file})")
+    except Exception as e:
+        print(f"⚠️ New Relic initialization failed: {e}")
+else:
+    print("ℹ️ NEW_RELIC_LICENSE_KEY not set - New Relic monitoring disabled")
 
 # ============================================================================
 # LANGGRAPH AGENT - Minimal Example

@@ -27,6 +27,32 @@ This project showcases:
 - OpenAI API key (optional; the agent has fallback echo mode)
 - New Relic account with a valid license key (for production monitoring)
 
+## How It Works
+
+### New Relic Integration
+
+This project includes a **required workaround** for New Relic integration with LangGraph Platform:
+
+**The Problem**: LangGraph Platform controls the ASGI/Uvicorn server lifecycle, which conflicts with New Relic's automatic instrumentation hooks for Uvicorn. This causes initialization errors.
+
+**The Workaround**: The `agent.py` file suppresses New Relic's Uvicorn hook before initialization:
+
+```python
+# Suppress the problematic Uvicorn hook
+class DummyUvicornModule:
+    def __getattr__(self, name):
+        def dummy_func(*args, **kwargs):
+            return None
+        return dummy_func
+
+sys.modules['newrelic.hooks.adapter_uvicorn'] = DummyUvicornModule()
+
+# Then initialize New Relic
+newrelic.agent.initialize(config_file)
+```
+
+This allows New Relic to initialize and monitor the application without conflicting with LangGraph Platform's server management. The trade-off is that Uvicorn-level instrumentation is not available, but LLM calls, transactions, and errors are still tracked.
+
 ## Local Development
 
 ### 1. Install Dependencies
@@ -96,9 +122,7 @@ In the deployment settings, set **Environment Variables**:
 NEW_RELIC_ENVIRONMENT=production
 ```
 
-**How New Relic Activation Works:**
-
-New Relic initializes automatically when the `NEW_RELIC_LICENSE_KEY` environment variable is set. This happens during the Uvicorn server startup, before LangGraph Platform initializes. The config file at `/deps/newrelic.ini` controls the monitoring settings (transaction tracking, AI monitoring, error collection, etc.).
+The `agent.py` file will automatically initialize New Relic when `NEW_RELIC_LICENSE_KEY` is set in secrets.
 
 ### Step 5: Deploy
 
@@ -160,14 +184,15 @@ LangGraph Platform builds and deploys using this image:
 
 ### New Relic not receiving data
 - Verify `NEW_RELIC_LICENSE_KEY` is set in LangSmith secrets
-- Check that `newrelic` package is installed (in `requirements.txt`)
-- Ensure `NEW_RELIC_CONFIG_FILE=/deps/newrelic.ini` (set in Dockerfile)
-- View New Relic agent logs in deployment logs
+- Check that `newrelic` package is installed (`requirements.txt`)
+- Verify agent initialization message in deployment logs: "✅ New Relic agent initialized"
+- Check `newrelic.ini` configuration settings
+- View New Relic agent logs in deployment output
 
-### TypeError: initialize() got an unexpected keyword argument
-- This indicates you manually initialized New Relic with invalid parameters
-- **Fix**: Remove any manual `newrelic.agent.initialize()` calls from code
-- New Relic activates automatically from environment variables - no manual init needed
+### Uvicorn-related New Relic errors (AttributeError, hook conflicts)
+- These are **expected and handled** by the Uvicorn hook workaround in `agent.py`
+- The workaround suppresses Uvicorn instrumentation but preserves transaction/LLM monitoring
+- If you see initialization errors, check that the workaround is in place in `agent.py`
 
 ## Support
 
