@@ -4,10 +4,8 @@ Minimal Reproducible Example: LangGraph + New Relic Integration Issue
 This demonstrates the conflict between LangGraph Platform's ASGI server lifecycle
 and New Relic's automatic instrumentation hooks.
 
-Problem: LangGraph Platform controls how Uvicorn is initialized, causing direct
-conflicts with New Relic's automatic instrumentation hooks.
-
-Solution: Explicitly initialize New Relic agent before importing LangGraph.
+Solution: Initialize New Relic with disable_agent_hooks to prevent conflicts
+with LangGraph Platform's Uvicorn initialization.
 """
 
 import os
@@ -15,14 +13,15 @@ import sys
 import asyncio
 
 # ============================================================================
-# NEW RELIC - EXPLICIT INITIALIZATION (MUST BE FIRST)
+# NEW RELIC - EXPLICIT INITIALIZATION WITH HOOK DISABLE
 # ============================================================================
 # Initialize New Relic agent before any other imports
-# This ensures the agent is active regardless of environment variable timing
+# Use disable_agent_hooks to prevent conflicts with LangGraph's Uvicorn
 config_file = os.environ.get("NEW_RELIC_CONFIG_FILE", "/deps/newrelic.ini")
 if os.path.exists(config_file):
     import newrelic.agent
-    newrelic.agent.initialize(config_file)
+    # Disable automatic hooks to prevent Uvicorn conflict
+    newrelic.agent.initialize(config_file, disable_agent_hooks=True)
     print(f"✅ New Relic agent initialized from {config_file}")
 else:
     print(f"⚠️ New Relic config not found at {config_file} - running without APM")

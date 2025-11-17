@@ -166,14 +166,15 @@ LangGraph Platform builds and deploys using this image:
 - View logs in LangSmith deployment details
 
 ### New Relic not receiving data
-- Verify `NEW_RELIC_LICENSE_KEY` is set
+- Verify `NEW_RELIC_LICENSE_KEY` is set in secrets
 - Check `NEW_RELIC_CONFIG_FILE=/deps/newrelic.ini` is in environment variables
+- Ensure `disable_agent_hooks = true` in `newrelic.ini` (prevents Uvicorn conflict)
 - View New Relic agent logs in deployment logs
 
-### Deployment build fails
-- Ensure `Dockerfile` exists and is valid
-- Verify all files referenced in `langgraph.json` exist
-- Check Python version compatibility
+### AttributeError: 'Config' object has no attribute '_nr_loaded_app'
+- This error occurs when New Relic's automatic hooks conflict with LangGraph's Uvicorn
+- **Fix**: Ensure `disable_agent_hooks = true` is set in `newrelic.ini`
+- The agent is manually initialized in `agent.py` with `disable_agent_hooks=True`
 
 ## Support
 
