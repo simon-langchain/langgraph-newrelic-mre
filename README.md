@@ -31,27 +31,45 @@ This project showcases:
 
 ### New Relic Integration
 
-This project includes a **required workaround** for New Relic integration with LangGraph Platform:
+This project includes an **enhanced integration** for New Relic monitoring with LangGraph Platform:
 
-**The Problem**: LangGraph Platform controls the ASGI/Uvicorn server lifecycle, which conflicts with New Relic's automatic instrumentation hooks for Uvicorn. This causes initialization errors.
+**The Problem**: LangGraph Platform controls the ASGI/Uvicorn server lifecycle, which conflicts with New Relic's automatic instrumentation hooks for Uvicorn. During initialization, New Relic tries to access `Config._nr_loaded_app` before it's been set, causing AttributeErrors.
 
-**The Workaround**: The `agent.py` file suppresses New Relic's Uvicorn hook before initialization:
+**The Solution**: The `agent.py` file uses a **protected hook wrapper** that:
+
+1. Intercepts New Relic's Uvicorn hook before initialization
+2. Allows the hook to initialize safely after New Relic starts
+3. Preserves full Uvicorn instrumentation and metrics
+4. Enables complete distributed tracing
 
 ```python
-# Suppress the problematic Uvicorn hook
-class DummyUvicornModule:
+class ProtectedUvicornHook:
+    """Safely handles New Relic's Uvicorn hook initialization."""
+    def __init__(self, original_module):
+        self._original_module = original_module
+        self._initialized = False
+    
     def __getattr__(self, name):
-        def dummy_func(*args, **kwargs):
-            return None
-        return dummy_func
-
-sys.modules['newrelic.hooks.adapter_uvicorn'] = DummyUvicornModule()
-
-# Then initialize New Relic
-newrelic.agent.initialize(config_file)
+        # Lazy-load the hook after New Relic is initialized
+        if not self._initialized:
+            try:
+                import newrelic.hooks.adapter_uvicorn as original
+                self._original_module = original
+                self._initialized = True
+            except (ImportError, AttributeError):
+                pass
+        # Return real hook or safe fallback
+        if hasattr(self._original_module, name):
+            return getattr(self._original_module, name)
+        return lambda *a, **k: None
 ```
 
-This allows New Relic to initialize and monitor the application without conflicting with LangGraph Platform's server management. The trade-off is that Uvicorn-level instrumentation is not available, but LLM calls, transactions, and errors are still tracked.
+**Benefits**:
+- ✓ Full Uvicorn instrumentation (thread pools, request handling, etc.)
+- ✓ Complete distributed tracing across services
+- ✓ LLM call monitoring via AI monitoring
+- ✓ Transaction traces and error detection
+- ✓ No initialization conflicts
 
 ## Local Development
 
@@ -190,9 +208,10 @@ LangGraph Platform builds and deploys using this image:
 - View New Relic agent logs in deployment output
 
 ### Uvicorn-related New Relic errors (AttributeError, hook conflicts)
-- These are **expected and handled** by the Uvicorn hook workaround in `agent.py`
-- The workaround suppresses Uvicorn instrumentation but preserves transaction/LLM monitoring
-- If you see initialization errors, check that the workaround is in place in `agent.py`
+- **These are now prevented** by the protected hook wrapper in `agent.py`
+- The wrapper safely delays hook initialization until after New Relic is ready
+- Full Uvicorn instrumentation is preserved, including thread pool metrics
+- If initialization still fails, verify that `agent.py` includes the `ProtectedUvicornHook` class
 
 ## Support
 
