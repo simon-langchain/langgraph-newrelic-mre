@@ -3,8 +3,9 @@ Minimal Reproducible Example: LangGraph + New Relic Integration
 
 This demonstrates a simple LangGraph agent with explicit New Relic monitoring.
 
-Note: New Relic requires a workaround for LangGraph Platform due to Uvicorn
-lifecycle conflicts. The Uvicorn hook is suppressed to prevent initialization errors.
+Note: LangGraph Platform controls the ASGI server lifecycle, specifically how Uvicorn is
+initialized, causing direct conflicts with New Relic's automatic instrumentation hooks.
+We disable auto-instrumentation and use manual function wrapping instead to avoid conflicts.
 """
 
 import os
@@ -12,66 +13,21 @@ import sys
 import asyncio
 
 # ============================================================================
-# NEW RELIC - EXPLICIT INITIALIZATION WITH RESILIENT UVICORN HOOK
+# NEW RELIC - EXPLICIT INITIALIZATION WITH DISABLED AUTO-INSTRUMENTATION
 # ============================================================================
-# Enhanced approach: Create a resilient wrapper for the Uvicorn hook that
-# handles initialization timing issues while ensuring full instrumentation.
+# Problem: LangGraph Platform initializes Uvicorn independently. New Relic's
+# automatic hooks try to instrument the Uvicorn config, causing errors during
+# the server initialization that LangGraph Platform controls.
 #
-# Key benefits:
-# - Prevents AttributeError during Config object initialization
-# - Preserves Uvicorn instrumentation (thread pools, connections, etc.)
-# - Maintains distributed tracing capabilities
-# - Lazy-loads the real hook after New Relic is ready
+# Solution: Set NEW_RELIC_DISABLE_AUTO_INSTRUMENTATION environment variable
+# before importing New Relic. This prevents automatic hook installation.
+# We then use manual function wrapping for instrumentation instead.
 
-class ResilientUvicornHook:
-    """
-    Resilient proxy for New Relic's Uvicorn hook that handles timing issues.
-    
-    Problem: LangGraph Platform initializes Uvicorn independently, and New Relic's
-    hook tries to access Config._nr_loaded_app before it exists.
-    
-    Solution: This proxy defers hook attribute access until after initialization,
-    allowing the real hook to function without conflicts.
-    """
-    def __init__(self):
-        self._real_hook = None
-        self._hook_loaded = False
-        self._real_hook_available = False
-        print("[NEW_RELIC] ResilientUvicornHook installed in sys.modules")
-    
-    def _load_real_hook(self):
-        """Attempt to load the real New Relic Uvicorn hook."""
-        if not self._hook_loaded:
-            try:
-                import newrelic.hooks.adapter_uvicorn
-                self._real_hook = newrelic.hooks.adapter_uvicorn
-                self._real_hook_available = True
-                self._hook_loaded = True
-                print("[NEW_RELIC] Real Uvicorn hook loaded successfully (lazy-loaded)")
-            except (ImportError, AttributeError, Exception) as e:
-                # If hook loading fails, we'll still use fallbacks
-                self._real_hook_available = False
-                self._hook_loaded = True
-                print(f"[NEW_RELIC] Real Uvicorn hook failed to load (using fallback): {type(e).__name__}: {e}")
-    
-    def __getattr__(self, name):
-        """Lazily load and delegate to the real hook."""
-        self._load_real_hook()
-        
-        if self._real_hook_available and self._real_hook and hasattr(self._real_hook, name):
-            attr = getattr(self._real_hook, name)
-            print(f"[NEW_RELIC] Delegating Uvicorn hook attribute '{name}' to real hook")
-            return attr
-        
-        # Graceful fallback - return no-op function
-        print(f"[NEW_RELIC] Uvicorn hook attribute '{name}' not available, using no-op fallback")
-        return lambda *args, **kwargs: None
+# Disable auto-instrumentation BEFORE importing newrelic
+if 'NEW_RELIC_DISABLE_AUTO_INSTRUMENTATION' not in os.environ:
+    os.environ['NEW_RELIC_DISABLE_AUTO_INSTRUMENTATION'] = 'true'
+    print("[NEW_RELIC] Setting NEW_RELIC_DISABLE_AUTO_INSTRUMENTATION=true")
 
-# Install the resilient hook BEFORE importing newrelic.agent
-print("[NEW_RELIC] Installing ResilientUvicornHook proxy...")
-sys.modules['newrelic.hooks.adapter_uvicorn'] = ResilientUvicornHook()
-
-# Now initialize New Relic explicitly
 config_file = os.environ.get("NEW_RELIC_CONFIG_FILE", "/deps/newrelic.ini")
 license_key = os.environ.get("NEW_RELIC_LICENSE_KEY")
 
@@ -84,18 +40,18 @@ if license_key:
         print(f"[NEW_RELIC] Calling newrelic.agent.initialize('{config_file}')...")
         newrelic.agent.initialize(config_file)
         print(f"✅ New Relic agent initialized (config: {config_file})")
-        print("   ✓ Hook option: ResilientUvicornHook proxy (lazy-loaded)")
-        print("   ✓ Uvicorn instrumentation: ENABLED")
+        print("   ✓ Strategy: Manual instrumentation (no auto-hooks)")
         print("   ✓ Distributed tracing: ENABLED")
         print("   ✓ AI monitoring: ENABLED")
-        print("   ✓ Transaction tracing: ENABLED")
+        print("   ✓ Transaction tracing: ENABLED (via manual wrapping)")
+        print("   ✓ Error collection: ENABLED")
     except Exception as e:
         print(f"⚠️ New Relic initialization failed: {e}")
         import traceback
         traceback.print_exc()
 else:
     print("ℹ️ NEW_RELIC_LICENSE_KEY not set - New Relic monitoring disabled")
-    print("[NEW_RELIC] Hook option: ResilientUvicornHook proxy (installed but inactive)")
+    print("[NEW_RELIC] Strategy: Manual instrumentation (installed but inactive)")
 
 # ============================================================================
 # LANGGRAPH AGENT - Minimal Example
@@ -134,6 +90,16 @@ def chatbot(state: State):
             "content": f"Echo: {last_message.content if hasattr(last_message, 'content') else str(last_message)}"
         }
         return {"messages": [echo_response]}
+
+
+# Manually wrap the chatbot function with New Relic instrumentation
+if license_key:
+    try:
+        print("[NEW_RELIC] Applying manual instrumentation to chatbot function...")
+        chatbot = newrelic.agent.function_trace()(chatbot)
+        print("[NEW_RELIC] Chatbot function manually wrapped")
+    except Exception as e:
+        print(f"[NEW_RELIC] Manual wrapping failed: {e}")
 
 
 # Build the graph
