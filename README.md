@@ -1,35 +1,14 @@
-# LangGraph + New Relic Integration MRE
+# LangGraph Agent
 
-A minimal reproducible example demonstrating how to integrate New Relic APM monitoring with LangGraph agents deployed on LangGraph Platform (LangSmith).
-
-## Overview
-
-This project showcases:
-- A simple LangGraph agent with message handling and LLM integration
-- **New Relic explicit initialization** with a resilient Uvicorn hook workaround
-- Complete APM monitoring: transactions, distributed tracing, LLM calls, and errors
-- Deployment to LangGraph Platform via LangSmith with full observability
-
-### The Challenge
-
-LangGraph Platform controls the ASGI/Uvicorn server lifecycle, which creates timing conflicts with New Relic's automatic instrumentation hooks. New Relic attempts to access `Config._nr_loaded_app` during initialization, but this attribute doesn't exist until the config is fully loaded.
-
-### The Solution
-
-This project implements a `ResilientUvicornHook` proxy that:
-- Intercepts New Relic's Uvicorn hook before initialization
-- Lazy-loads the real hook after New Relic is ready
-- Preserves full Uvicorn and transaction instrumentation
-- Gracefully handles edge cases
+A simple LangGraph agent that invokes an LLM.
 
 ## Project Structure
 
 ```
-├── agent.py              # LangGraph agent with New Relic initialization
+├── agent.py              # LangGraph agent
 ├── langgraph.json        # LangGraph Platform configuration
 ├── requirements.txt      # Python dependencies
 ├── Dockerfile            # Container image definition
-├── newrelic.ini          # New Relic agent configuration
 ├── README.md             # This file
 └── .env                  # Environment variables (local only)
 ```
@@ -38,8 +17,7 @@ This project implements a `ResilientUvicornHook` proxy that:
 
 - Python 3.11+
 - LangSmith account (free tier available at https://smith.langchain.com)
-- OpenAI API key (optional; the agent has fallback echo mode for testing)
-- New Relic account (for APM monitoring)
+- OpenAI API key
 
 ## Local Development
 
@@ -56,8 +34,6 @@ Create a `.env` file in the project root:
 ```bash
 # .env (local testing only)
 OPENAI_API_KEY=your_openai_key_here
-NEW_RELIC_LICENSE_KEY=your_new_relic_key_here  # Optional
-NEW_RELIC_CONFIG_FILE=/path/to/newrelic.ini     # Optional
 ```
 
 ### 3. Test Locally
@@ -68,11 +44,6 @@ python agent.py
 
 Expected output:
 ```
-✅ New Relic agent initialized (config: /path/to/newrelic.ini)
-   ✓ Uvicorn instrumentation: ENABLED
-   ✓ Distributed tracing: ENABLED
-   ✓ AI monitoring: ENABLED
-   ✓ Transaction tracing: ENABLED
 🔨 Building LangGraph...
 ✅ LangGraph compiled successfully
 🚀 Ready to deploy!
@@ -86,7 +57,7 @@ Ensure your code is in a GitHub repository:
 
 ```bash
 git add .
-git commit -m "LangGraph agent with New Relic monitoring"
+git commit -m "LangGraph agent"
 git push origin main
 ```
 
@@ -100,26 +71,13 @@ git push origin main
 
 ### Step 3: Configure Secrets
 
-Add the following secrets in LangSmith deployment settings:
+Add the following secret in LangSmith deployment settings:
 
 ```
 OPENAI_API_KEY = <your-openai-api-key>
-NEW_RELIC_LICENSE_KEY = <your-new-relic-license-key>
 ```
 
-**Important**: `NEW_RELIC_LICENSE_KEY` is required to activate New Relic monitoring. Without it, the agent runs in disabled mode.
-
-### Step 4: Configure Environment Variables
-
-Set the following environment variables:
-
-```
-NEW_RELIC_ENVIRONMENT=production
-```
-
-(The Dockerfile already sets `NEW_RELIC_CONFIG_FILE=/deps/newrelic.ini`)
-
-### Step 5: Deploy
+### Step 4: Deploy
 
 1. Click **Deploy**
 2. Wait for the build to complete (typically 2-5 minutes)
@@ -141,7 +99,66 @@ curl -X POST https://<your-deployment-url>/runs \
 
 Or use the LangSmith UI to test interactively.
 
-## Monitoring with New Relic
+## Configuration Files
+
+### `agent.py`
+
+The core agent file with LangGraph:
+
+- **State**: TypedDict for message handling
+- **chatbot**: Node that calls ChatOpenAI
+- **graph**: Compiled LangGraph with the chatbot node
+
+### `langgraph.json`
+
+LangGraph Platform configuration:
+
+```json
+{
+  "graphs": { "agent": "./agent.py:graph" },
+  "python_version": "3.11"
+}
+```
+
+- Defines the agent graph endpoint
+- Sets Python version to 3.11
+
+### `Dockerfile`
+
+Builds a container image:
+
+- Starts from `langchain/langgraph-api:3.11`
+- Installs dependencies from `requirements.txt`
+- Copies agent code
+
+### `requirements.txt`
+
+Python dependencies:
+
+```
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+```
+
+## Troubleshooting
+
+### Agent fails to load
+
+Check the deployment logs:
+- Verify `OPENAI_API_KEY` is set
+- Check `requirements.txt` package versions are compatible
+- Review build logs in LangSmith deployment details
+
+## Resources
+
+- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
+- [LangSmith Deployment Guide](https://docs.smith.langchain.com/)
+- [LangChain OpenAI Documentation](https://python.langchain.com/docs/integrations/llms/openai)
+
+## License
+
+This is a minimal example for educational purposes. Modify and use as needed for your project.
 
 After deployment, view monitoring data in New Relic:
 
