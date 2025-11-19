@@ -49,6 +49,68 @@ Expected output:
 🚀 Ready to deploy!
 ```
 
+## OpenTelemetry Tracing to New Relic
+
+This application is configured to send OTEL traces to New Relic via the OTLP endpoint. Tracing is **optional** - it activates only when you configure the required environment variables.
+
+### Prerequisites for OTEL Tracing
+
+- New Relic account with an active license key
+- Required OTEL environment variables configured
+
+### Configuration
+
+To enable OTEL tracing, set these environment variables:
+
+```bash
+# New Relic OTLP endpoint (US region, default)
+export OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp.nr-data.net"
+
+# New Relic license key (required for tracing)
+export OTEL_EXPORTER_OTLP_HEADERS="api-key=<your-new-relic-license-key>"
+
+# Optional: Set service name (defaults to "langgraph-newrelic-mre")
+export OTEL_SERVICE_NAME="my-langgraph-app"
+
+# Optional: Other OTEL settings
+export OTEL_EXPORTER_OTLP_TIMEOUT="10"
+export OTEL_EXPORTER_OTLP_COMPRESSION="gzip"
+```
+
+#### For Different New Relic Regions
+
+**EU Region:**
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp.eu01.nr-data.net"
+```
+
+**FedRAMP:**
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT="https://gov-otlp.nr-data.net"
+```
+
+### Local Testing with OTEL
+
+1. Set the environment variables above
+2. Run the agent:
+
+```bash
+python agent.py
+```
+
+If tracing is configured correctly, you'll see:
+```
+✅ OpenTelemetry tracing to New Relic initialized
+```
+
+Traces will be sent to New Relic immediately. View them in [New Relic](https://one.newrelic.com) under **Traces**.
+
+### What Gets Traced
+
+- **LLM calls**: ChatOpenAI invocations with success/error attributes
+- **Span attributes**: LLM response status and error messages when they occur
+- **Service metrics**: Configured via `OTEL_SERVICE_NAME`
+
 ## Deployment on LangSmith
 
 ### Step 1: Push to GitHub
@@ -69,13 +131,24 @@ git push origin main
 4. Connect your GitHub repository
 5. Select the branch (e.g., `main`)
 
-### Step 3: Configure Secrets
+### Step 3: Configure Secrets and Environment Variables
 
-Add the following secret in LangSmith deployment settings:
+In LangSmith deployment settings, add the following:
 
+**Secrets:**
 ```
 OPENAI_API_KEY = <your-openai-api-key>
 ```
+
+**Environment Variables (for OTEL tracing to New Relic):**
+```
+OTEL_EXPORTER_OTLP_ENDPOINT = https://otlp.nr-data.net
+OTEL_EXPORTER_OTLP_HEADERS = api-key=<your-new-relic-license-key>
+OTEL_SERVICE_NAME = langgraph-newrelic-mre
+OTEL_EXPORTER_OTLP_COMPRESSION = gzip
+```
+
+> **Note**: OTEL tracing is optional. If you don't set `OTEL_EXPORTER_OTLP_HEADERS`, the application will run normally without OTEL tracing.
 
 ### Step 4: Deploy
 
@@ -99,14 +172,42 @@ curl -X POST https://<your-deployment-url>/runs \
 
 Or use the LangSmith UI to test interactively.
 
+## Viewing OTEL Traces in New Relic
+
+Once you've deployed the agent with OTEL tracing configured:
+
+1. Go to [New Relic One](https://one.newrelic.com)
+2. Navigate to **Traces** from the left sidebar
+3. Filter by service name: `langgraph-newrelic-mre` (or your custom `OTEL_SERVICE_NAME`)
+4. View individual trace spans:
+   - **Span name**: `chatbot_invoke`
+   - **Attributes**:
+     - `llm.response.success`: true/false
+     - `llm.response.error`: error message (if applicable)
+     - `service.name`: from `OTEL_SERVICE_NAME`
+
+### Trace Analysis
+
+Each trace will show:
+- **Duration**: How long the LLM call took
+- **Attributes**: Request/response metadata
+- **Status**: Success or error
+- **Timestamp**: When the trace was generated
+
 ## Configuration Files
 
 ### `agent.py`
 
-The core agent file with LangGraph:
+The core agent file with LangGraph and OpenTelemetry:
 
+- **setup_otel_tracing()**: Initializes OTLP exporter to New Relic
+  - Reads environment variables: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`
+  - Creates `TracerProvider` and `BatchSpanProcessor`
+  - Returns `True` if tracing is enabled, `False` otherwise
 - **State**: TypedDict for message handling
-- **chatbot**: Node that calls ChatOpenAI
+- **chatbot**: Node that calls ChatOpenAI with tracing
+  - Wraps LLM invocation in a span named `chatbot_invoke`
+  - Sets span attributes for success/error tracking
 - **graph**: Compiled LangGraph with the chatbot node
 
 ### `langgraph.json`
@@ -136,9 +237,16 @@ Builds a container image:
 Python dependencies:
 
 ```
-langgraph>=0.2.0
-langchain-core>=0.3.0
-langchain-openai>=0.2.0
+langgraph>=0.2.0                                # LangGraph framework
+langchain-core>=0.3.0                          # LangChain core
+langchain-openai>=0.2.0                        # OpenAI integration
+
+# OpenTelemetry tracing to New Relic
+opentelemetry-sdk>=1.20.0                      # OpenTelemetry SDK
+opentelemetry-exporter-otlp>=0.41b0            # OTLP exporter
+opentelemetry-instrumentation>=0.41b0          # Auto-instrumentation
+opentelemetry-instrumentation-http>=0.41b0     # HTTP instrumentation
+opentelemetry-instrumentation-requests>=0.41b0 # Requests instrumentation
 ```
 
 ## Troubleshooting
@@ -150,11 +258,57 @@ Check the deployment logs:
 - Check `requirements.txt` package versions are compatible
 - Review build logs in LangSmith deployment details
 
+### OTEL Tracing Not Sending Data
+
+1. **Verify configuration**:
+   - Check that `OTEL_EXPORTER_OTLP_HEADERS` is set with a valid New Relic license key
+   - Confirm `OTEL_EXPORTER_OTLP_ENDPOINT` points to the correct New Relic region
+   - Look for "✅ OpenTelemetry tracing to New Relic initialized" in logs
+
+2. **Check environment variables**:
+   ```bash
+   # Local testing
+   echo $OTEL_EXPORTER_OTLP_HEADERS
+   echo $OTEL_EXPORTER_OTLP_ENDPOINT
+   ```
+
+3. **Verify network connectivity**:
+   - Ensure your environment can reach `otlp.nr-data.net` (or your configured endpoint)
+   - Check firewall/security group rules allow outbound HTTPS on port 443
+
+4. **Enable debug logging**:
+   ```bash
+   export OTEL_LOG_LEVEL=debug
+   ```
+
+### Wrong New Relic Region
+
+If traces don't appear in New Relic, verify your region:
+- **US**: `https://otlp.nr-data.net` (default)
+- **EU**: `https://otlp.eu01.nr-data.net`
+- **FedRAMP**: `https://gov-otlp.nr-data.net`
+
+Set the correct endpoint:
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp.eu01.nr-data.net"
+```
+
+### No Spans Appearing in New Relic
+
+- **If OTEL variables not set**: Tracing is disabled (not an error)
+- **If variables are set but no traces**: 
+  - May take a few seconds for traces to appear
+  - Check New Relic API key is valid
+  - Verify `BatchSpanProcessor` is batching and flushing correctly
+
 ## Resources
 
 - [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
 - [LangSmith Deployment Guide](https://docs.smith.langchain.com/)
 - [LangChain OpenAI Documentation](https://python.langchain.com/docs/integrations/llms/openai)
+- [OpenTelemetry OTLP Exporter](https://opentelemetry.io/docs/reference/specification/protocol/exporter/)
+- [New Relic OTLP Endpoint Configuration](https://docs.newrelic.com/docs/opentelemetry/best-practices/opentelemetry-otlp/)
+- [LangSmith Trace with OpenTelemetry](https://docs.langchain.com/langsmith/trace-with-opentelemetry)
 
 ## License
 
