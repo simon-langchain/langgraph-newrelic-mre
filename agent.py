@@ -144,8 +144,77 @@ if license_key:
         
         graph.invoke = wrapped_invoke
         print("[NEW_RELIC]   ✓ Graph invoke wrapped")
+        
+        # Wrap streaming invoke if available
+        if hasattr(graph, 'stream'):
+            original_stream = graph.stream
+            
+            def wrapped_stream(input_data, *args, **kwargs):
+                """Wrapped graph.stream that captures streaming execution."""
+                return newrelic.agent.function_trace(
+                    name='graph.stream',
+                    group='langgraph'
+                )(original_stream)(input_data, *args, **kwargs)
+            
+            graph.stream = wrapped_stream
+            print("[NEW_RELIC]   ✓ Graph stream wrapped")
+        
     except Exception as e:
         print(f"[NEW_RELIC] Graph wrapping failed: {e}")
+
+
+# Create HTTP transaction wrapper for ASGI
+def create_asgi_wrapper():
+    """
+    Create a wrapper that captures ASGI request/response as New Relic transactions.
+    This provides HTTP-level instrumentation without conflicting with Uvicorn hooks.
+    """
+    if not license_key:
+        return None
+    
+    try:
+        def asgi_transaction_wrapper(asgi_app):
+            """
+            ASGI middleware that wraps requests in New Relic transactions.
+            Captures HTTP method, path, and status code.
+            """
+            async def app(scope, receive, send):
+                if scope["type"] != "http":
+                    return await asgi_app(scope, receive, send)
+                
+                # Extract HTTP details
+                method = scope.get("method", "UNKNOWN")
+                path = scope.get("path", "/")
+                transaction_name = f"HTTP {method} {path}"
+                
+                # Create New Relic transaction
+                with newrelic.agent.WebTransaction(
+                    application=newrelic.agent.current_app(),
+                    name=transaction_name
+                ) as transaction:
+                    # Capture request details
+                    transaction.add_custom_attribute("http.method", method)
+                    transaction.add_custom_attribute("http.path", path)
+                    
+                    # Wrap send to capture response status
+                    async def send_with_status(message):
+                        if message["type"] == "http.response.start":
+                            status = message.get("status", 200)
+                            transaction.add_custom_attribute("http.status", status)
+                        return await send(message)
+                    
+                    return await asgi_app(scope, receive, send_with_status)
+            
+            return app
+        
+        print("[NEW_RELIC]   ✓ ASGI transaction wrapper created")
+        return asgi_transaction_wrapper
+        
+    except Exception as e:
+        print(f"[NEW_RELIC] ASGI wrapper creation failed: {e}")
+        return None
+
+asgi_wrapper = create_asgi_wrapper()
 
 print("✅ LangGraph compiled successfully")
 print("=" * 80)
