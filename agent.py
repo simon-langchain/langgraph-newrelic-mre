@@ -19,11 +19,21 @@ import asyncio
 # automatic hooks try to instrument the Uvicorn config, causing errors during
 # the server initialization that LangGraph Platform controls.
 #
-# Solution: Set NEW_RELIC_DISABLE_AUTO_INSTRUMENTATION environment variable
-# before importing New Relic. This prevents automatic hook installation.
-# We then use manual function wrapping for instrumentation instead.
+# Solution: Prevent the Uvicorn hook from being loaded by replacing it with
+# a no-op module in sys.modules BEFORE New Relic tries to use it.
+# This prevents the AttributeError while allowing other New Relic features.
 
-# Disable auto-instrumentation BEFORE importing newrelic
+# Create a no-op hook module to prevent conflicts
+class NoOpHook:
+    """Placeholder module that prevents the real Uvicorn hook from loading."""
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+# Install the no-op hook BEFORE New Relic is imported
+print("[NEW_RELIC] Blocking newrelic.hooks.adapter_uvicorn hook to prevent conflicts...")
+sys.modules['newrelic.hooks.adapter_uvicorn'] = NoOpHook()
+
+# Disable auto-instrumentation to avoid other hook conflicts
 if 'NEW_RELIC_DISABLE_AUTO_INSTRUMENTATION' not in os.environ:
     os.environ['NEW_RELIC_DISABLE_AUTO_INSTRUMENTATION'] = 'true'
     print("[NEW_RELIC] Setting NEW_RELIC_DISABLE_AUTO_INSTRUMENTATION=true")
@@ -40,7 +50,7 @@ if license_key:
         print(f"[NEW_RELIC] Calling newrelic.agent.initialize('{config_file}')...")
         newrelic.agent.initialize(config_file)
         print(f"✅ New Relic agent initialized (config: {config_file})")
-        print("   ✓ Strategy: Manual instrumentation (no auto-hooks)")
+        print("   ✓ Strategy: Block Uvicorn hook + manual instrumentation")
         print("   ✓ Distributed tracing: ENABLED")
         print("   ✓ AI monitoring: ENABLED")
         print("   ✓ Transaction tracing: ENABLED (via manual wrapping)")
@@ -51,7 +61,7 @@ if license_key:
         traceback.print_exc()
 else:
     print("ℹ️ NEW_RELIC_LICENSE_KEY not set - New Relic monitoring disabled")
-    print("[NEW_RELIC] Strategy: Manual instrumentation (installed but inactive)")
+    print("[NEW_RELIC] Strategy: Block Uvicorn hook + manual instrumentation (installed but inactive)")
 
 # ============================================================================
 # LANGGRAPH AGENT - Minimal Example
