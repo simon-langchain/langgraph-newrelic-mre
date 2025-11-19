@@ -49,14 +49,30 @@ Expected output:
 🚀 Ready to deploy!
 ```
 
-## OpenTelemetry Tracing to New Relic
+## OpenTelemetry Tracing to New Relic and LangSmith
 
-This application is configured to send OTEL traces to New Relic via the OTLP endpoint. Tracing is **optional** - it activates only when you configure the required environment variables.
+This application is configured to send OTEL traces to **both New Relic and LangSmith** via the OTLP endpoint, using LangSmith's OTEL integration for proper span attributes and kinds. Tracing is **optional** - it activates only when you configure the required environment variables.
 
 ### Prerequisites for OTEL Tracing
 
 - New Relic account with an active license key
 - Required OTEL environment variables configured
+
+### How It Works
+
+The application uses the **LangChain/LangSmith OTEL integration approach** (following https://docs.langchain.com/langsmith/trace-with-opentelemetry):
+
+1. **LangSmith's OTEL integration** (`langsmith[otel]>=0.4.25`) provides:
+   - Proper span kinds (llm, chain, tool, etc.)
+   - Semantic attributes for LLM operations
+   - GenAI standard attributes
+   - Automatic fan-out to multiple OTEL endpoints (hybrid tracing)
+
+2. **Sends traces to both New Relic and LangSmith** via environment variables:
+   - `LANGSMITH_OTEL_ENABLED=true`: Enable OTEL integration with hybrid fan-out
+   - `OTEL_EXPORTER_OTLP_ENDPOINT`: Points to New Relic (or LangSmith)
+   - `OTEL_EXPORTER_OTLP_HEADERS`: Contains New Relic license key
+   - LangSmith automatically adds its own traces (no additional configuration needed)
 
 ### Configuration
 
@@ -108,6 +124,9 @@ Traces will be sent to New Relic immediately. View them in [New Relic](https://o
 ### What Gets Traced
 
 - **LLM calls**: ChatOpenAI invocations with success/error attributes
+- **HTTP requests**: All LLM API calls are automatically instrumented via `RequestsInstrumentor`
+  - Captures OpenAI HTTP requests with method, URL, status code, and duration
+  - Appears as child spans under the `chatbot_invoke` span
 - **Span attributes**: LLM response status and error messages when they occur
 - **Service metrics**: Configured via `OTEL_SERVICE_NAME`
 
@@ -194,15 +213,38 @@ Each trace will show:
 - **Status**: Success or error
 - **Timestamp**: When the trace was generated
 
+### Viewing LLM Span Details
+
+In New Relic, expand the `chatbot_invoke` span to see child spans:
+
+1. **`chatbot_invoke` (parent span)**
+   - Your custom span wrapping the entire LLM operation
+   - Attributes:
+     - `llm.response.success`: true/false
+     - `llm.response.error`: error message (if applicable)
+
+2. **HTTP child spans** (auto-instrumented)
+   - `POST /chat/completions` or similar
+   - Shows the actual OpenAI API call
+   - Attributes:
+     - `http.method`: POST
+     - `http.url`: api.openai.com/v1/chat/completions
+     - `http.status_code`: 200
+     - `http.response.body.bytes`: Response size
+
+The HTTP spans are automatically captured by `RequestsInstrumentor` and appear as children of your `chatbot_invoke` span, giving you full visibility into the LLM API call details.
+
 ## Configuration Files
 
 ### `agent.py`
 
 The core agent file with LangGraph and OpenTelemetry:
 
-- **setup_otel_tracing()**: Initializes OTLP exporter to New Relic
-  - Reads environment variables: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`
-  - Creates `TracerProvider` and `BatchSpanProcessor`
+- **setup_otel_tracing()**: Initializes LangSmith OTEL integration with New Relic
+  - Sets `LANGSMITH_OTEL_ENABLED=true` for proper span attributes and hybrid fan-out
+  - Configures OTLP exporter with New Relic endpoint
+  - Enables `RequestsInstrumentor()` for automatic HTTP instrumentation (captures LLM calls)
+  - Traces automatically fan-out to both New Relic and LangSmith
   - Returns `True` if tracing is enabled, `False` otherwise
 - **State**: TypedDict for message handling
 - **chatbot**: Node that calls ChatOpenAI with tracing
@@ -237,14 +279,17 @@ Builds a container image:
 Python dependencies:
 
 ```
-langgraph>=0.2.0                    # LangGraph framework
-langchain-core>=0.3.0               # LangChain core
-langchain-openai>=0.2.0             # OpenAI integration
+langgraph>=0.2.0                     # LangGraph framework
+langchain-core>=0.3.0                # LangChain core
+langchain-openai>=0.2.0              # OpenAI integration
 
-# OpenTelemetry tracing to New Relic
-opentelemetry-sdk>=1.20.0           # OpenTelemetry SDK
-opentelemetry-exporter-otlp>=0.43b0 # OTLP exporter for New Relic
+# OpenTelemetry tracing to New Relic (following LangChain OTEL docs)
+langsmith[otel]>=0.4.25              # LangSmith with OTEL for proper span attributes
+opentelemetry-sdk>=1.20.0            # OpenTelemetry SDK
+opentelemetry-exporter-otlp>=0.43b0  # OTLP exporter for New Relic
+opentelemetry-instrumentation-requests>=0.43b0 # HTTP instrumentation for LLM calls
 ```
+
 
 ## Troubleshooting
 

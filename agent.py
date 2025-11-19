@@ -15,18 +15,24 @@ from langchain_openai import ChatOpenAI
 # Initialize OpenTelemetry tracing to New Relic
 def setup_otel_tracing():
     """
-    Configure OpenTelemetry to send traces to New Relic via OTLP endpoint.
+    Configure OpenTelemetry to send traces to both LangSmith and New Relic via OTLP endpoint.
+    Uses LangSmith's OTEL integration for proper span attributes and kinds,
+    while also sending traces to New Relic.
     
     Environment variables required:
     - OTEL_EXPORTER_OTLP_ENDPOINT: New Relic OTLP endpoint (default: https://otlp.nr-data.net)
     - OTEL_EXPORTER_OTLP_HEADERS: API key header (format: "api-key=<license_key>")
     - OTEL_SERVICE_NAME: Service name for tracing (optional)
+    
+    Also sets:
+    - LANGSMITH_OTEL_ENABLED=true: Enable LangSmith's OTEL integration for span attributes
     """
     try:
         from opentelemetry import trace
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.instrumentation.requests import RequestsInstrumentor
         
         # Set default environment variables for New Relic if not already configured
         if not os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
@@ -35,9 +41,12 @@ def setup_otel_tracing():
         if not os.getenv("OTEL_SERVICE_NAME"):
             os.environ["OTEL_SERVICE_NAME"] = "langgraph-newrelic-mre"
         
+        # Enable LangSmith's OTEL integration for proper span attributes and kinds
+        os.environ["LANGSMITH_OTEL_ENABLED"] = "true"
+        
         # Only initialize if OTLP headers (API key) are configured
         if os.getenv("OTEL_EXPORTER_OTLP_HEADERS"):
-            # Create OTLP exporter
+            # Create OTLP exporter with New Relic endpoint and headers
             otlp_exporter = OTLPSpanExporter(
                 timeout=10,
             )
@@ -51,13 +60,19 @@ def setup_otel_tracing():
             # Set as global tracer provider
             trace.set_tracer_provider(tracer_provider)
             
+            # Enable automatic instrumentation for HTTP requests (captures LLM API calls)
+            RequestsInstrumentor().instrument()
+            
             print("✅ OpenTelemetry tracing to New Relic initialized")
+            print("✅ LangSmith OTEL integration enabled for proper span attributes")
+            print("✅ Traces sent to both LangSmith and New Relic")
+            print("✅ HTTP instrumentation enabled (captures LLM API calls)")
             return True
         else:
             print("ℹ️ OTEL_EXPORTER_OTLP_HEADERS not set - OTEL tracing disabled")
             return False
-    except ImportError:
-        print("⚠️ OpenTelemetry packages not installed - tracing disabled")
+    except ImportError as e:
+        print(f"⚠️ OpenTelemetry packages not installed - tracing disabled: {e}")
         return False
     except Exception as e:
         print(f"⚠️ Failed to initialize OTEL tracing: {e}")
