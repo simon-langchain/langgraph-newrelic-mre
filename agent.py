@@ -105,9 +105,12 @@ def chatbot(state: State):
 # Manually wrap the chatbot function with New Relic instrumentation
 if license_key:
     try:
-        print("[NEW_RELIC] Applying manual instrumentation to chatbot function...")
-        chatbot = newrelic.agent.function_trace()(chatbot)
-        print("[NEW_RELIC] Chatbot function manually wrapped")
+        print("[NEW_RELIC] Applying manual instrumentation...")
+        
+        # Wrap the chatbot node function
+        chatbot = newrelic.agent.function_trace(name='chatbot_node')(chatbot)
+        print("[NEW_RELIC]   ✓ Chatbot node wrapped")
+        
     except Exception as e:
         print(f"[NEW_RELIC] Manual wrapping failed: {e}")
 
@@ -126,6 +129,23 @@ async def compile_graph():
     return await asyncio.to_thread(_compile)
 
 graph = asyncio.run(compile_graph())
+
+# Wrap graph invocation
+if license_key:
+    try:
+        original_invoke = graph.invoke
+        
+        def wrapped_invoke(input_data, *args, **kwargs):
+            """Wrapped graph.invoke that captures execution."""
+            return newrelic.agent.function_trace(
+                name='graph.invoke',
+                group='langgraph'
+            )(original_invoke)(input_data, *args, **kwargs)
+        
+        graph.invoke = wrapped_invoke
+        print("[NEW_RELIC]   ✓ Graph invoke wrapped")
+    except Exception as e:
+        print(f"[NEW_RELIC] Graph wrapping failed: {e}")
 
 print("✅ LangGraph compiled successfully")
 print("=" * 80)
