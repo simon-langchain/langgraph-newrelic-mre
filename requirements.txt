@@ -6,8 +6,5 @@ langchain-openai>=0.2.0
 
 # OpenTelemetry tracing to New Relic
 opentelemetry-sdk>=1.20.0
-opentelemetry-exporter-otlp>=0.41b0
-opentelemetry-instrumentation>=0.41b0
-opentelemetry-instrumentation-http>=0.41b0
-opentelemetry-instrumentation-requests>=0.41b0
+opentelemetry-exporter-otlp>=0.43b0
 

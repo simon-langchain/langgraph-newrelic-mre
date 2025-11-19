@@ -237,16 +237,13 @@ Builds a container image:
 Python dependencies:
 
 ```
-langgraph>=0.2.0                                # LangGraph framework
-langchain-core>=0.3.0                          # LangChain core
-langchain-openai>=0.2.0                        # OpenAI integration
+langgraph>=0.2.0                    # LangGraph framework
+langchain-core>=0.3.0               # LangChain core
+langchain-openai>=0.2.0             # OpenAI integration
 
 # OpenTelemetry tracing to New Relic
-opentelemetry-sdk>=1.20.0                      # OpenTelemetry SDK
-opentelemetry-exporter-otlp>=0.41b0            # OTLP exporter
-opentelemetry-instrumentation>=0.41b0          # Auto-instrumentation
-opentelemetry-instrumentation-http>=0.41b0     # HTTP instrumentation
-opentelemetry-instrumentation-requests>=0.41b0 # Requests instrumentation
+opentelemetry-sdk>=1.20.0           # OpenTelemetry SDK
+opentelemetry-exporter-otlp>=0.43b0 # OTLP exporter for New Relic
 ```
 
 ## Troubleshooting
