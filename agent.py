@@ -49,11 +49,33 @@ if license_key:
         import newrelic.agent
         print(f"[NEW_RELIC] Calling newrelic.agent.initialize('{config_file}')...")
         newrelic.agent.initialize(config_file)
+        
+        # Manually instrument external libraries after initialization
+        print("[NEW_RELIC] Manually instrumenting external libraries...")
+        try:
+            import newrelic.hooks.external_requests
+            print("[NEW_RELIC]   ✓ HTTP requests instrumentation enabled")
+        except Exception:
+            pass
+        
+        try:
+            import newrelic.hooks.external_urllib3
+            print("[NEW_RELIC]   ✓ Urllib3 instrumentation enabled")
+        except Exception:
+            pass
+        
+        try:
+            import newrelic.hooks.external_httplib
+            print("[NEW_RELIC]   ✓ HTTPlib instrumentation enabled")
+        except Exception:
+            pass
+        
         print(f"✅ New Relic agent initialized (config: {config_file})")
-        print("   ✓ Strategy: Block Uvicorn hook + manual instrumentation")
+        print("   ✓ Strategy: Block Uvicorn hook + manual function + external instrumentation")
         print("   ✓ Distributed tracing: ENABLED")
         print("   ✓ AI monitoring: ENABLED")
         print("   ✓ Transaction tracing: ENABLED (via manual wrapping)")
+        print("   ✓ External HTTP calls: ENABLED (LLM requests visible)")
         print("   ✓ Error collection: ENABLED")
     except Exception as e:
         print(f"⚠️ New Relic initialization failed: {e}")
@@ -61,7 +83,7 @@ if license_key:
         traceback.print_exc()
 else:
     print("ℹ️ NEW_RELIC_LICENSE_KEY not set - New Relic monitoring disabled")
-    print("[NEW_RELIC] Strategy: Block Uvicorn hook + manual instrumentation (installed but inactive)")
+    print("[NEW_RELIC] Strategy: Block Uvicorn hook + manual function + external instrumentation (installed but inactive)")
 
 # ============================================================================
 # LANGGRAPH AGENT - Minimal Example
@@ -89,7 +111,17 @@ def chatbot(state: State):
     # Use ChatOpenAI if available, otherwise echo
     try:
         llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
-        response = llm.invoke(messages)
+        
+        # Wrap LLM invocation with New Relic tracing
+        if license_key:
+            invoke_func = newrelic.agent.function_trace(
+                name='openai.invoke',
+                group='llm'
+            )(llm.invoke)
+            response = invoke_func(messages)
+        else:
+            response = llm.invoke(messages)
+        
         return {"messages": [response]}
     except Exception as e:
         print(f"⚠️ LLM not available, using echo mode: {e}")
